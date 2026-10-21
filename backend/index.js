@@ -194,7 +194,7 @@ async function requireUser(req) {
   const authorization = req.headers.authorization || "";
   const match = /^Bearer ([\w.-]+)$/.exec(authorization);
   if (!match) throw Object.assign(new Error("Sign in is required."), { status: 401 });
-  try { return await getAuth().verifyIdToken(match[1], true); }
+  try { return await getAuth().verifyIdToken(match[1]); }
   catch { throw Object.assign(new Error("Your sign-in session is invalid. Sign in again."), { status: 401 }); }
 }
 

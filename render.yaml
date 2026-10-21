@@ -12,8 +12,6 @@ services:
         value: production
       - key: GOOGLE_CLOUD_PROJECT
         value: d-1288b
-      - key: GOOGLE_APPLICATION_CREDENTIALS
-        value: /etc/secrets/firebase-admin.json
       - key: FRONTEND_ORIGIN
         value: https://ymisk019.github.io
       - key: GITHUB_OWNER
