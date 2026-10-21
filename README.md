@@ -17,36 +17,28 @@ docs/                   Privacy and terms pages
 
 ## Required services
 
-- Node.js 22, Google Cloud CLI, a Firebase project, and a Cloud Run-enabled Google Cloud project.
+- A Render account, a Firebase project, and Node.js 22 for local validation.
 - Firebase Authentication with Email/Password and Google providers enabled. Add the deployed website's domain to Firebase Authentication's authorized domains.
-- One **private** GitHub repository for staged and approved source files. Create a fine-grained GitHub token restricted to that repository with Contents read/write permission. Keep it in Google Secret Manager; never put it in the browser or commit it.
-- A Cloud Run service account and Cloud Run service for `backend/`. The API needs Firebase project identity verification and GitHub/AI secrets, but does not use Firebase Storage, Firestore, or Firebase Functions.
+- One **private** GitHub repository for staged and approved source files. Create a fine-grained GitHub token restricted to that repository with Contents read/write permission. Store it as a Render environment secret; never put it in the browser or commit it.
+- A Render web service for `backend/` and a Firebase service-account JSON key for server-side token verification. Firebase remains limited to Authentication and admin custom claims; the API does not use Firebase Storage, Firestore, or Firebase Functions.
 - Gemini and Groq keys/model IDs are optional. If AI review is missing, fails, or is uncertain, the submission still requires human review. Configure both providers if using AI assistance.
 
 ## Configure Firebase Authentication
 
 The existing public Firebase web configuration in `index.html` points to project `d-1288b`. In Firebase Console, verify this is the intended project, enable Email/Password and Google under Authentication providers, and add `ymisk019.github.io` under Authentication authorized domains. The API validates signed ID tokens against this same project and checks the server-assigned `admin` custom claim. App Check, Firebase Hosting, Firestore, Storage, and Functions are not part of this architecture.
 
-## Deploy the API
+## Deploy the API to Render
 
-1. The private repository [ymisk019/houssam-dev-games-private](https://github.com/ymisk019/houssam-dev-games-private) has been created for staging and approved assets. Create a fine-grained token with Contents read/write access to that repository only and add it to Google Secret Manager as `github-token`. Optionally create `gemini-api-key` and `groq-api-key` secrets.
-2. Deploy the API from this directory using Google Cloud CLI. The project ID `d-1288b` comes from the Firebase web configuration in the site. The Cloud Run runtime service account needs `roles/secretmanager.secretAccessor` for each secret and `roles/firebaseauth.admin` to verify token revocation. The API must be publicly reachable for the public catalog and game proxy; all submission/review writes require a verified Firebase ID token, and admin routes additionally require the server-assigned `admin` claim.
+The repository includes a `render.yaml` Blueprint for the Node.js 22 API. It sets `backend/` as the service root, runs `npm ci` and `npm start`, configures `/healthz` as the health check, and supplies the non-secret project/repository settings. Render provides `PORT` and `RENDER_EXTERNAL_URL`; the server binds to `0.0.0.0` and uses the generated HTTPS URL automatically. Set `PUBLIC_API_ORIGIN` only if using a custom HTTPS domain.
 
-   ```powershell
-   gcloud run deploy houssam-publishing-api --source backend --project d-1288b --region us-central1 --allow-unauthenticated --no-traffic --memory 2Gi --concurrency 4 --set-env-vars GOOGLE_CLOUD_PROJECT=d-1288b,FRONTEND_ORIGIN=https://ymisk019.github.io,PUBLIC_API_ORIGIN=https://placeholder.invalid,GITHUB_OWNER=ymisk019,GITHUB_REPO=houssam-dev-games-private,GITHUB_BRANCH=main --set-secrets GITHUB_TOKEN=github-token:latest
-   ```
+1. Create a dedicated Firebase service account for the API in project `d-1288b` and grant it the **Firebase Authentication Admin** role (`roles/firebaseauth.admin`), which is needed because API requests verify token revocation. Generate a JSON key for that account. The API uses the Firebase Admin SDK with Application Default Credentials, which works on Render when the key is mounted as a secret file.
+2. In Render, create the web service from this repository's Blueprint. Before using authenticated API routes, open the service's **Environment** settings and add a Secret File named `firebase-admin.json` containing the service-account JSON. The Blueprint sets `GOOGLE_APPLICATION_CREDENTIALS=/etc/secrets/firebase-admin.json`; keep that path unchanged unless you update both settings. Never commit the key, paste it into chat, or add it as a regular environment variable. Restrict access to the Render service, rotate the key if exposed, and remove the key from the Firebase/Google Cloud service-account credentials page when no longer needed.
+3. Set the Blueprint's `GITHUB_TOKEN` environment variable to a fine-grained GitHub token restricted to [ymisk019/houssam-dev-games-private](https://github.com/ymisk019/houssam-dev-games-private) with Contents read/write permission. Mark it secret in Render. This private repository is where staged submissions, approved assets, catalog metadata, and audit records are stored; it is not the API host. Keep the API publicly reachable for the public catalog and game proxy; all submission/review writes require a verified Firebase ID token, and admin routes additionally require the server-assigned `admin` claim.
+4. Wait for the Render deployment to become healthy, then copy its HTTPS service URL from the Render dashboard. Render supplies this as `RENDER_EXTERNAL_URL`, which the API uses for public game and download URLs automatically. Confirm `FRONTEND_ORIGIN` is exactly `https://ymisk019.github.io`. If you use a custom API domain, set `PUBLIC_API_ORIGIN` to its HTTPS origin and add that domain to the frontend Content Security Policy in `index.html`.
+5. Replace the `API_BASE` placeholder in `index.html` with the Render service URL (or custom API domain). Commit that frontend change to the repository's configured GitHub Pages branch and wait for the Pages deployment. The existing Content Security Policy allows Render's `*.onrender.com` service domains.
+6. Optionally add `GEMINI_API_KEY` and `GROQ_API_KEY` as Render secret environment variables, plus `GEMINI_MODEL` and `GROQ_MODEL` as ordinary environment variables for model IDs available to those accounts. AI assistance is limited to identifying pornographic or sexually explicit content. It never approves or publishes a game; every submission still requires an administrator's approval. Never put provider keys or the GitHub token in `index.html`, `.env.example`, or game files.
 
-   After the first deploy, copy the HTTPS service URL from Cloud Run. Replace the temporary `PUBLIC_API_ORIGIN` with that URL and add optional AI secrets/model IDs in Cloud Run. Then route traffic to the ready revision:
-
-   ```powershell
-   gcloud run services update houssam-publishing-api --project d-1288b --region us-central1 --update-env-vars PUBLIC_API_ORIGIN=https://YOUR-CLOUD-RUN-SERVICE-URL --update-secrets GEMINI_API_KEY=gemini-api-key:latest,GROQ_API_KEY=groq-api-key:latest
-   gcloud run services update-traffic houssam-publishing-api --project d-1288b --region us-central1 --to-latest
-   ```
-
-   Add `GEMINI_MODEL` and `GROQ_MODEL` as Cloud Run environment variables if both optional AI secrets are configured. The `FRONTEND_ORIGIN` must exactly match the site origin (`https://ymisk019.github.io`).
-3. Copy that HTTPS service URL into the `API_BASE` constant in `index.html`. The storefront is a static GitHub Pages site; commit the configured frontend and let the repository's Pages deployment publish it. Keep Firebase limited to Authentication and custom admin claims.
-
-4. Add the AI provider keys as Cloud Run secrets if desired. Configure `GEMINI_MODEL` and `GROQ_MODEL` with model IDs available to the respective accounts. Never add provider keys or the GitHub token to `index.html`, `.env.example`, or game files.
+The Blueprint uses Render's free web-service plan. Free services can spin down when idle; choose an appropriate always-on plan in Render if the API needs to remain warm. After changing environment variables or secret files, trigger a new deployment/restart in Render. Later pushes to the configured branch will also redeploy the API when auto-deploy is enabled.
 
 The backend stores staging data under `submissions/<id>/` and approved game assets under `published/<id>/`, with public catalog metadata under `catalog/`. These paths are all in the private repository. It writes the public catalog record only after the approved assets have been committed. The public API serves files only when the corresponding catalog record is `Published`; suspension immediately blocks playback and downloads. Approved browser game URLs and ZIP download URLs use the API proxy, not GitHub Pages or a public GitHub repository.
 

@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: houssam-publishing-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GOOGLE_CLOUD_PROJECT
+        value: d-1288b
+      - key: GOOGLE_APPLICATION_CREDENTIALS
+        value: /etc/secrets/firebase-admin.json
+      - key: FRONTEND_ORIGIN
+        value: https://ymisk019.github.io
+      - key: GITHUB_OWNER
+        value: ymisk019
+      - key: GITHUB_REPO
+        value: houssam-dev-games-private
+      - key: GITHUB_BRANCH
+        value: main
+      - key: GITHUB_TOKEN
+        sync: false

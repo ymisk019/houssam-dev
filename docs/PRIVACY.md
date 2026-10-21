@@ -14,7 +14,7 @@ Yazan dev is designed to collect only the information needed to provide accounts
 
 ## Service providers and retention
 
-Firebase Authentication, Google, Groq, GitHub, Google Cloud Run, and the configured hosting provider process data according to their own terms and privacy policies. Their availability and retention are controlled by the project operator. The application has no automated submission-retention or account-deletion job; operators must configure retention, deletion, and backup procedures before production.
+Firebase Authentication, Google, Groq, GitHub, Render, and the configured hosting provider process data according to their own terms and privacy policies. Their availability and retention are controlled by the project operator. The application has no automated submission-retention or account-deletion job; operators must configure retention, deletion, and backup procedures before production.
 
 Access to private submissions and privileged records is enforced by the standalone API using verified Firebase Authentication tokens and server-side administrator claims. Operational logs may include submission IDs and safe provider/hosting error summaries. API keys and authentication tokens must never be included in game files, descriptions, moderation excerpts, or client-visible logs.
 

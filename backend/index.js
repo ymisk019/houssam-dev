@@ -7,7 +7,6 @@ const { initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
 const { inspectArchive } = require("./archive");
 
-initializeApp();
 const PORT = Number(process.env.PORT) || 8080;
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -15,6 +14,10 @@ const VALID_ID = /^[A-Za-z0-9_-]{10,80}$/;
 const VALID_GENRES = new Set(["Action", "Adventure", "Horror", "Racing", "Puzzle", "Platformer", "RPG", "Strategy", "Simulation", "Other"]);
 const playCounts = new Map();
 const rateLimits = new Map();
+
+function apiOrigin() {
+  return process.env.PUBLIC_API_ORIGIN || process.env.RENDER_EXTERNAL_URL || "";
+}
 
 function response(res, status, payload, headers = {}) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff", ...headers });
@@ -290,7 +293,7 @@ async function publishSubmission(submission) {
     if (!screenshot || screenshot.length > MAX_IMAGE_BYTES) throw new Error("A submitted screenshot is missing or too large.");
     const extension = imageExtension(screenshot);
     files.push({ path: `screenshots/${id}/screenshot-${index + 1}.${extension}`, content: screenshot });
-    screenshotUrls.push(`${process.env.PUBLIC_API_ORIGIN}/screenshots/${id}/screenshot-${index + 1}.${extension}`);
+    screenshotUrls.push(`${apiOrigin()}/screenshots/${id}/screenshot-${index + 1}.${extension}`);
   }
   const zip = await readUpload(id, "game.zip");
   if (!zip) throw new Error("The game ZIP is missing.");
@@ -306,9 +309,9 @@ async function publishSubmission(submission) {
     id, title: submission.title, description: submission.description, shortDescription: submission.shortDescription,
     genre: submission.genre, tags: submission.tags || [], creatorUid: submission.creatorUid,
     creatorName: submission.creatorName, type: submission.type === "both" ? "Browser + Download" : submission.type === "browser" ? "Browser Game" : "Downloadable Game",
-    gameUrl: submission.type === "download" ? "" : `${process.env.PUBLIC_API_ORIGIN}/games/${id}/index.html`,
-    downloadUrl: submission.type === "browser" ? "" : `${process.env.PUBLIC_API_ORIGIN}/downloads/${id}/${fileName}`,
-    coverUrl: `${process.env.PUBLIC_API_ORIGIN}/covers/${id}.${coverExt}`,
+    gameUrl: submission.type === "download" ? "" : `${apiOrigin()}/games/${id}/index.html`,
+    downloadUrl: submission.type === "browser" ? "" : `${apiOrigin()}/downloads/${id}/${fileName}`,
+    coverUrl: `${apiOrigin()}/covers/${id}.${coverExt}`,
     screenshots: screenshotUrls, featured: false, status: "Published", publishedAt: new Date().toISOString(),
     releaseDate: new Date().toISOString().slice(0, 10), playCount: 0,
     fileName: submission.type === "browser" ? "" : fileName, fileSizeBytes: submission.type === "browser" ? 0 : zip.length,
@@ -429,7 +432,7 @@ async function routeApi(req, res, url) {
       if (entry.type !== "dir" || !VALID_ID.test(entry.name)) continue;
       const record = await getJson(`submissions/${entry.name}/submission.json`);
       if (!record || !["Pending Review", "Needs Human Review", "AI Review Failed"].includes(record.status)) continue;
-      submissions.push({ ...record, intendedBrowserUrl: record.type === "download" ? "" : `${process.env.PUBLIC_API_ORIGIN}/games/${record.id}/index.html`, intendedDownloadUrl: record.type === "browser" ? "" : `${process.env.PUBLIC_API_ORIGIN}/downloads/${record.id}/${record.id}-v${record.version || 1}.zip` });
+      submissions.push({ ...record, intendedBrowserUrl: record.type === "download" ? "" : `${apiOrigin()}/games/${record.id}/index.html`, intendedDownloadUrl: record.type === "browser" ? "" : `${apiOrigin()}/downloads/${record.id}/${record.id}-v${record.version || 1}.zip` });
     }
     const catalogFiles = await listDirectory("catalog");
     const games = [];
@@ -630,14 +633,16 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
-  const required = ["GOOGLE_CLOUD_PROJECT", "FRONTEND_ORIGIN", "PUBLIC_API_ORIGIN", "GITHUB_OWNER", "GITHUB_REPO", "GITHUB_TOKEN"];
+  const required = ["GOOGLE_CLOUD_PROJECT", "FRONTEND_ORIGIN", "GITHUB_OWNER", "GITHUB_REPO", "GITHUB_TOKEN"];
   const missing = required.filter(name => !process.env[name]);
   if (missing.length) throw new Error(`Missing required runtime configuration: ${missing.join(", ")}`);
-  for (const name of ["FRONTEND_ORIGIN", "PUBLIC_API_ORIGIN"]) {
-    if (new URL(process.env[name]).protocol !== "https:") throw new Error(`${name} must be an HTTPS origin.`);
+  const publicOrigin = apiOrigin();
+  if (!publicOrigin) throw new Error("Set PUBLIC_API_ORIGIN or run on a host that provides RENDER_EXTERNAL_URL.");
+  for (const [name, value] of [["FRONTEND_ORIGIN", process.env.FRONTEND_ORIGIN], ["PUBLIC_API_ORIGIN or RENDER_EXTERNAL_URL", publicOrigin]]) {
+    if (new URL(value).protocol !== "https:") throw new Error(`${name} must be an HTTPS origin.`);
   }
-  initializeApp();
+  initializeApp({ projectId: process.env.GOOGLE_CLOUD_PROJECT });
   server.listen(PORT, "0.0.0.0", () => console.log(`Publishing API listening on ${PORT}`));
 }
 
-module.exports = { proxyPath, publicGame, validateMetadata };
+module.exports = { apiOrigin, proxyPath, publicGame, validateMetadata };

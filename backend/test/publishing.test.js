@@ -2,7 +2,24 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { proxyPath, publicGame, validateMetadata } = require("../index");
+const { apiOrigin, proxyPath, publicGame, validateMetadata } = require("../index");
+
+test("Render service URL is used unless a custom public API origin is set", () => {
+  const previousPublicOrigin = process.env.PUBLIC_API_ORIGIN;
+  const previousRenderUrl = process.env.RENDER_EXTERNAL_URL;
+  try {
+    delete process.env.PUBLIC_API_ORIGIN;
+    process.env.RENDER_EXTERNAL_URL = "https://houssam-publishing-api.onrender.com";
+    assert.equal(apiOrigin(), process.env.RENDER_EXTERNAL_URL);
+    process.env.PUBLIC_API_ORIGIN = "https://api.example.com";
+    assert.equal(apiOrigin(), process.env.PUBLIC_API_ORIGIN);
+  } finally {
+    if (previousPublicOrigin === undefined) delete process.env.PUBLIC_API_ORIGIN;
+    else process.env.PUBLIC_API_ORIGIN = previousPublicOrigin;
+    if (previousRenderUrl === undefined) delete process.env.RENDER_EXTERNAL_URL;
+    else process.env.RENDER_EXTERNAL_URL = previousRenderUrl;
+  }
+});
 
 test("only public proxy routes map to a game inside private repository paths", () => {
   assert.deepEqual(proxyPath(new URL("https://api.example/games/12345678-1234-1234-1234-123456789012/index.html")), {
