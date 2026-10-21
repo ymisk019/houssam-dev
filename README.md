@@ -25,7 +25,7 @@ docs/                   Privacy and terms pages
 
 ## Configure Firebase Authentication
 
-The existing public Firebase web configuration in `index.html` points to project `d-1288b`. In Firebase Console, verify this is the intended project, enable Email/Password and Google under Authentication providers, and add `ymisk019.github.io` under Authentication authorized domains. The API validates signed ID tokens against this same project and checks the server-assigned `admin` custom claim. App Check, Firebase Hosting, Firestore, Storage, and Functions are not part of this architecture.
+The existing public Firebase web configuration in `index.html` points to project `d-1288b`. This browser configuration is public and must not contain service-account credentials or the GitHub token. Google sign-in uses a redirect rather than a popup. In Firebase Console, verify this is the intended project, enable Email/Password and Google under Authentication providers, and add `ymisk019.github.io` under Authentication authorized domains. The API validates signed ID tokens against this same project and checks the server-assigned `admin` custom claim. App Check, Firebase Hosting, Firestore, Storage, and Functions are not part of this architecture.
 
 ## Deploy the API to Render
 
