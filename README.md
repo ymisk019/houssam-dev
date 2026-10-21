@@ -10,7 +10,8 @@ The service is not activated by this repository alone. A private game staging re
 index.html              Storefront and Firebase Authentication client
 backend/index.js        Standalone Node.js API, private GitHub storage, moderation and publishing
 backend/archive.js      ZIP validation and bounded source inspection
-backend/set-admin.js    Trusted one-time Firebase custom-claim utility
+backend/set-admin.js    Trusted one-time Firebase admin-claim utility
+backend/demote-admin.js Trusted one-time Firebase admin-claim removal utility
 backend/.env.example    Non-secret backend configuration template
 docs/                   Privacy and terms pages
 ```
@@ -26,6 +27,8 @@ docs/                   Privacy and terms pages
 ## Configure Firebase Authentication
 
 The existing public Firebase web configuration in `index.html` points to project `d-1288b`. This browser configuration is public and must not contain service-account credentials or the GitHub token. Google sign-in uses a redirect rather than a popup. In Firebase Console, verify this is the intended project, enable Email/Password and Google under Authentication providers, and add `ymisk019.github.io` under Authentication authorized domains. The API validates ID-token signatures, issuer, audience, and expiry against this project and checks the server-assigned `admin` custom claim. It does not check revocation: a revoked token or token belonging to a disabled user can remain authorized until the ID token expires (about one hour). App Check, Firebase Hosting, Firestore, Storage, and Functions are not part of this architecture.
+
+Email registration saves the entered display name directly to the user's Firebase Authentication profile using `updateProfile`; no Firestore database is needed or used for profile names or authorization.
 
 ## Deploy the API to Render
 
@@ -55,6 +58,21 @@ npm run set-admin
 ```
 
 This trusted operator credential is needed only to provision the first administrator; it is not required by the Render API. Keep the service-account key outside this repository and revoke it when no longer needed. The administrator must refresh their Firebase ID token (sign out and back in if needed). Server endpoints verify the signed token and require `admin: true`; an editable profile or browser value is never trusted for authorization.
+
+## Remove an administrator
+
+To make an account an ordinary user, use an operator workstation with trusted Google Application Default Credentials authorized to update users in the intended Firebase project. The utility removes only the `admin` custom claim and preserves any other custom claims. It runs locally with the Firebase Admin SDK; do not put credentials in the browser, repository, or Render API configuration.
+
+```powershell
+cd backend
+npm install
+$env:GOOGLE_APPLICATION_CREDENTIALS = 'C:\secure\firebase-admin.json'
+$env:FIREBASE_PROJECT_ID = 'd-1288b'
+$env:ADMIN_UID = 'the-user-auth-uid'
+npm run demote-admin
+```
+
+Alternatively, use previously configured trusted Application Default Credentials without setting `GOOGLE_APPLICATION_CREDENTIALS`. Removing the only administrator leaves the project with no admin account until an authorized trusted operator grants the claim again using the procedure above. The affected user must refresh their Firebase ID token (sign out and back in if needed) for the change to take effect.
 
 ## Review and publication behavior
 
