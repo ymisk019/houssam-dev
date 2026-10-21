@@ -1,163 +1,95 @@
 # Yazan dev
 
-An English-only indie-game discovery and publishing site. The repository contains a single-file vanilla-JavaScript frontend, Firebase Authentication/Firestore/Storage integration, Firebase Functions v2 backend, locked-down Firestore and Storage rules, and server-side Gemini, Groq, and GitHub integrations. The public catalog starts empty: no demo titles or pretend downloads are included.
+An indie-game catalog and publishing site. Firebase is used only for Authentication and the trusted `admin` custom claim. A separate Node.js API verifies Firebase ID tokens and uses a **private GitHub repository** for submission files, review metadata, the public catalog, and audit records. It proxies only approved games and downloads; the source repository stays private.
 
-This is a deployable implementation, but it is not live until you configure the external accounts below. With placeholder Firebase/App Check values, authentication-dependent actions and publishing remain disabled. AI moderation is advisory and never publishes a game by itself.
+The service is not activated by this repository alone. A private game staging repository has been created at [ymisk019/houssam-dev-games-private](https://github.com/ymisk019/houssam-dev-games-private). You must configure Firebase Authentication, deploy the standalone API, set server-side secrets, and point the frontend at the deployed API. The frontend currently has an `API_BASE` placeholder, so game publishing and the live catalog remain unavailable until setup is complete.
 
-## Project layout
+## Layout
 
 ```text
-index.html                 Responsive storefront, Firebase Auth, catalog, player, creator/admin interfaces
-functions/index.js         Callable backend, ZIP inspection, dual-provider moderation, admin review, GitHub publishing
-functions/package.json     Firebase Functions runtime dependencies
-firestore.rules            Public catalog read / private metadata write rules
-storage.rules              Owner-only quarantine upload rules and size limits
-firebase.json              Firebase Hosting, Functions and rules deployment settings
-firestore.indexes.json     Composite indexes for catalog and review queues
-functions/.env.example     Non-secret backend configuration template
-functions/set-admin.js     One-time server-side custom-claim management utility
-docs/PRIVACY.md            Data handling summary
-docs/TERMS.md              User and game-submission terms
+index.html              Storefront and Firebase Authentication client
+backend/index.js        Standalone Node.js API, private GitHub storage, moderation and publishing
+backend/archive.js      ZIP validation and bounded source inspection
+backend/set-admin.js    Trusted one-time Firebase custom-claim utility
+backend/.env.example    Non-secret backend configuration template
+docs/                   Privacy and terms pages
 ```
 
-## Requirements and limits
+## Required services
 
-- Node.js 22, Firebase CLI, a Firebase project with Authentication, Firestore, Storage, App Check, and Cloud Functions enabled. Cloud Functions deployment requires a billing-enabled Firebase plan.
-- Enable Email/Password and Google providers in Firebase Authentication.
-- For Google sign-in, open the deployed HTTPS website rather than `index.html` from a local `file://` path. Add `ymisk019.github.io` under Firebase Authentication → Settings → Authorized domains, and enable the Google provider under Sign-in method. A local file has no authorized web domain, so Firebase blocks its popup sign-in.
-- Register the deployed site with reCAPTCHA v3 in Firebase App Check. Put the web site key in `APP_CHECK_SITE_KEY`; the key is public and is not an API secret.
-- Browser ZIP: 25 MB compressed, 100 MB extracted, 200 files, 5 MB per entry, maximum 12 path levels and 100:1 compression ratio. A root-level `index.html` is required. The per-entry cap matches the 5 MB GitHub Git Data API publishing limit.
-- Cover and screenshots: 5 MB each. Accepted formats are JPG, PNG and WebP; the backend verifies each image signature. Up to 5 optional screenshots are supported per submission.
-- Download ZIP: 25 MB incoming; the GitHub Release publishing limit in this implementation is 100 MB. The lower upload cap applies. Release assets and published game files are public.
-- Submissions are stored under private Firebase Storage paths until an administrator publishes them. ZIP contents are never executed by the backend.
+- Node.js 22, Google Cloud CLI, a Firebase project, and a Cloud Run-enabled Google Cloud project.
+- Firebase Authentication with Email/Password and Google providers enabled. Add the deployed website's domain to Firebase Authentication's authorized domains.
+- One **private** GitHub repository for staged and approved source files. Create a fine-grained GitHub token restricted to that repository with Contents read/write permission. Keep it in Google Secret Manager; never put it in the browser or commit it.
+- A Cloud Run service account and Cloud Run service for `backend/`. The API needs Firebase project identity verification and GitHub/AI secrets, but does not use Firebase Storage, Firestore, or Firebase Functions.
+- Gemini and Groq keys/model IDs are optional. If AI review is missing, fails, or is uncertain, the submission still requires human review. Configure both providers if using AI assistance.
 
-The archive scanner rejects traversal, absolute paths, duplicate names (case-insensitive), symbolic links, oversized entries/archives, excessive compression, and unsupported file types. It reports heuristic source findings for human review. No antivirus engine is bundled. Neither static checks nor AI analysis prove that a game is safe.
+## Configure Firebase Authentication
 
-The backend `.env` values can lower these archive/image limits within the hard caps shown above. Keep the matching Firebase Storage rule limits and the upload dialog's displayed default limits in sync if you lower them.
+The existing public Firebase web configuration in `index.html` points to project `d-1288b`. In Firebase Console, verify this is the intended project, enable Email/Password and Google under Authentication providers, and add `ymisk019.github.io` under Authentication authorized domains. The API validates signed ID tokens against this same project and checks the server-assigned `admin` custom claim. App Check, Firebase Hosting, Firestore, Storage, and Functions are not part of this architecture.
 
-## Configure Firebase
+## Deploy the API
 
-1. Create a Firebase project and a Web App. Copy its web configuration into the clearly marked `firebaseConfig` object near the beginning of the module script in `index.html`.
-2. Configure Authentication providers and allowed domains. Configure reCAPTCHA v3 / App Check and set `APP_CHECK_SITE_KEY` in `index.html`. The callable functions require App Check.
-3. Create Firestore and a default Storage bucket in the same project. Review the rules in this repository; do not add public catalog writes or public quarantine reads.
-4. Install the Firebase CLI, authenticate, then select the project:
+1. The private repository [ymisk019/houssam-dev-games-private](https://github.com/ymisk019/houssam-dev-games-private) has been created for staging and approved assets. Create a fine-grained token with Contents read/write access to that repository only and add it to Google Secret Manager as `github-token`. Optionally create `gemini-api-key` and `groq-api-key` secrets.
+2. Deploy the API from this directory using Google Cloud CLI. The project ID `d-1288b` comes from the Firebase web configuration in the site. The Cloud Run runtime service account needs `roles/secretmanager.secretAccessor` for each secret and `roles/firebaseauth.admin` to verify token revocation. The API must be publicly reachable for the public catalog and game proxy; all submission/review writes require a verified Firebase ID token, and admin routes additionally require the server-assigned `admin` claim.
 
    ```powershell
-   npm install -g firebase-tools
-   firebase login
-   firebase use --add
+   gcloud run deploy houssam-publishing-api --source backend --project d-1288b --region us-central1 --allow-unauthenticated --no-traffic --memory 2Gi --concurrency 4 --set-env-vars GOOGLE_CLOUD_PROJECT=d-1288b,FRONTEND_ORIGIN=https://ymisk019.github.io,PUBLIC_API_ORIGIN=https://placeholder.invalid,GITHUB_OWNER=ymisk019,GITHUB_REPO=houssam-dev-games-private,GITHUB_BRANCH=main --set-secrets GITHUB_TOKEN=github-token:latest
    ```
 
-5. Install backend packages and deploy:
+   After the first deploy, copy the HTTPS service URL from Cloud Run. Replace the temporary `PUBLIC_API_ORIGIN` with that URL and add optional AI secrets/model IDs in Cloud Run. Then route traffic to the ready revision:
 
    ```powershell
-   cd functions
-   npm install
-   cd ..
-   firebase deploy --only firestore,storage,functions,hosting
+   gcloud run services update houssam-publishing-api --project d-1288b --region us-central1 --update-env-vars PUBLIC_API_ORIGIN=https://YOUR-CLOUD-RUN-SERVICE-URL --update-secrets GEMINI_API_KEY=gemini-api-key:latest,GROQ_API_KEY=groq-api-key:latest
+   gcloud run services update-traffic houssam-publishing-api --project d-1288b --region us-central1 --to-latest
    ```
 
-The Firestore catalog is publicly readable only for documents whose server-controlled status is `Published`. Client writes to game records, submissions, moderation results, and audit logs are denied. User profiles are self-readable and have a narrow client update surface.
+   Add `GEMINI_MODEL` and `GROQ_MODEL` as Cloud Run environment variables if both optional AI secrets are configured. The `FRONTEND_ORIGIN` must exactly match the site origin (`https://ymisk019.github.io`).
+3. Copy that HTTPS service URL into the `API_BASE` constant in `index.html`. The storefront is a static GitHub Pages site; commit the configured frontend and let the repository's Pages deployment publish it. Keep Firebase limited to Authentication and custom admin claims.
 
-## Configure the backend secrets and providers
+4. Add the AI provider keys as Cloud Run secrets if desired. Configure `GEMINI_MODEL` and `GROQ_MODEL` with model IDs available to the respective accounts. Never add provider keys or the GitHub token to `index.html`, `.env.example`, or game files.
 
-Set API keys as Firebase-managed function secrets; never put them in `index.html`, `.env` files committed to Git, game archives, or the GitHub Pages site:
+The backend stores staging data under `submissions/<id>/` and approved game assets under `published/<id>/`, with public catalog metadata under `catalog/`. These paths are all in the private repository. It writes the public catalog record only after the approved assets have been committed. The public API serves files only when the corresponding catalog record is `Published`; suspension immediately blocks playback and downloads. Approved browser game URLs and ZIP download URLs use the API proxy, not GitHub Pages or a public GitHub repository.
 
-```powershell
-firebase functions:secrets:set GEMINI_API_KEY
-firebase functions:secrets:set GROQ_API_KEY
-firebase functions:secrets:set GITHUB_TOKEN
-```
+## Create the first administrator
 
-Create `functions/.env.<firebase-project-id>` locally or configure equivalent non-secret runtime environment values in your deployment environment. Start from `functions/.env.example`. Set `GEMINI_MODEL` and `GROQ_MODEL` to model identifiers currently available to your own accounts; the functions do not assume a provider model is available. Set:
-
-- `GITHUB_OWNER`, `GITHUB_REPO`, `GITHUB_BRANCH`
-- `GITHUB_PAGES_ORIGIN`, including the repo path for a project Pages site (for example `https://OWNER.github.io/REPOSITORY`)
-- `GEMINI_MODEL`, `GROQ_MODEL`
-
-The GitHub token should be a fine-grained token limited to the one public game repository with repository Contents and Releases read/write access. For a production deployment, prefer a GitHub App installation token with equivalent minimum permissions and rotate credentials regularly. The publishing function creates unique `games/<submission-id>/...` paths, commits browser files without force-pushing, uploads downloadable ZIPs as versioned GitHub Release assets, and waits for the game entry and cover to answer successfully over HTTPS before adding the public Firestore catalog record. A failed publication remains unavailable to the public catalog and is logged for administrator follow-up.
-
-For a project GitHub Pages deployment, enable Pages for the publishing branch and set `PUBLIC_GAMES_ORIGIN` in `index.html` to the exact origin configured above (without the repository path). The player accepts only approved `/games/<id>/index.html` paths on the current site origin or that exact configured origin. The iframe sandbox intentionally omits `allow-same-origin`, forms, popups, and top-navigation privileges.
-
-Firebase callable functions do not require a custom CORS allowlist: Firebase handles callable transport and verifies auth/App Check tokens. Do not expose an HTTP endpoint or widen Firebase's rules to bypass these checks.
-
-## Assign an administrator
-
-An administrator is identified only by a Firebase Authentication custom claim. Never set an editable Firestore `isAdmin` field.
-
-Use a trusted operator workstation with Application Default Credentials for the intended Firebase project:
+Never let users set their own admin status. Use an operator workstation with trusted Google Application Default Credentials authorized to update users in the intended Firebase project:
 
 ```powershell
+cd backend
+npm install
 $env:GOOGLE_APPLICATION_CREDENTIALS = 'C:\secure\firebase-admin.json'
-$env:FIREBASE_PROJECT_ID = 'your-project-id'
+$env:FIREBASE_PROJECT_ID = 'd-1288b'
 $env:ADMIN_UID = 'the-user-auth-uid'
-cd functions
 npm run set-admin
 ```
 
-Keep the service-account key outside this project and remove access when finished. The admin panel re-checks a verified token claim in every privileged function. Publication, suspension, restoration, rejection, and report-review actions are audited.
+Keep the service-account key outside this repository and revoke it when no longer needed. The administrator must refresh their Firebase ID token (sign out and back in if needed). Server endpoints verify the signed token and require `admin: true`; an editable profile or browser value is never trusted for authorization.
 
-## Creator workflow
+## Review and publication behavior
 
-1. Sign in with Google or email/password.
-2. Select **Publish** and provide metadata, a JPG/PNG/WebP cover, up to five optional screenshots, and one ZIP. Use a ZIP whose root contains `index.html` for browser builds; keep every required asset in the archive and use relative asset paths.
-3. The authenticated client uploads only to its own private staging prefix. The trusted function checks metadata, file signatures, ZIP structure and limits, runs static checks, and independently calls Gemini and Groq using bounded text excerpts.
-4. If both provider requests succeed and do not surface high-risk findings or conflicting recommendations, the submission enters `Pending Review`; otherwise it is explicitly marked for human review or failure. Only a server-verified administrator can publish.
-5. The admin reviews the evidence and can approve/publish, reject, or request changes. GitHub Pages availability is checked before the public catalog entry is written.
+Creators upload files through the API, which writes them directly to the private GitHub repository. Browser ZIPs must have a root `index.html`; ZIP size is limited to 25 MB, extracted size to 100 MB, and entries to 5 MB. Covers/screenshots must be valid JPG, PNG, or WebP files up to 5 MB. The server does not execute uploaded code.
 
-Unapproved uploads are not placed in the public GitHub repository. A browser game is hosted under the configured public Pages origin after approval. A download is a public, versioned GitHub Release asset; do not upload private material.
+AI-assisted review is restricted to identifying **pornographic or sexually explicit content** in bounded source text and metadata. It does not automatically inspect images, moderate unrelated policy categories, or make the publication decision. Missing providers, provider errors, uncertainty, or a possible explicit-content finding are sent to the human review queue. Administrators must inspect cover and screenshot images themselves. Only an authenticated administrator can approve, reject, request changes, suspend, restore, feature, or close a report. Privileged actions are recorded in the private repository.
 
-## Built-in games
+Approved game files and downloads are publicly playable/downloadable through the API. Keeping the source repository private does not prevent users from viewing or copying browser-delivered game content or downloaded files. Submission files, including rejected uploads, remain in private Git history; configure a retention and repository-cleanup procedure before production. Per-account API rate limits are in-memory best-effort limits and should be supplemented by a managed API gateway for higher-volume use.
 
-`builtInGames` in `index.html` is the single built-in catalog array and is intentionally empty. Add an object only after the matching game files exist in the repository. Include real relative `cover`, `gameUrl`, and `downloadUrl` paths and only set a download URL for an existing file. Built-in entries are static content; the Firestore collection is the trusted catalog for creator submissions.
-
-## Local checks and deployment
+## Validation
 
 ```powershell
-cd functions
+cd backend
 npm install
 npm run lint
-cd ..
-firebase emulators:start --only functions,firestore,storage,hosting
+npm test
 ```
 
-Use a non-production Firebase project and a dedicated test GitHub repository for end-to-end upload and publishing tests. Before launch, verify App Check, authentication providers, rules, all provider secrets/models, GitHub permissions, Pages deployment, and administrator claims. Deploy using `firebase deploy` after review. A static GitHub Pages frontend can serve `index.html`, but GitHub Pages does not run Firebase backend code; deploy Functions, Auth, Firestore, and Storage separately through Firebase.
+Before launch, test with a non-production Firebase project and a dedicated private GitHub repository. Verify non-admin API requests are denied, an ordinary user cannot publish, unapproved URLs return 404, only approved games are served, suspension blocks serving, and a failed repository write never creates a public catalog entry.
 
-### Manual acceptance checklist
+## Existing Firebase resources
 
-- Browse the empty catalog, then verify search, genre filters and Latest / Most Played / Featured sorting after publishing approved test content.
-- Verify email/password, Google sign-in, sign-out and password reset using Firebase test users.
-- Upload a valid root-index ZIP and cover. Verify a bad signature, oversized ZIP, traversal entry, duplicate path, oversized extracted archive, and missing root `index.html` fail; confirm the upload stays private.
-- Configure both providers and confirm distinct Gemini/Groq reports are stored. Then disable one provider and verify the submission is not auto-approved and its error appears only in the admin report.
-- With a non-admin account, call admin functions and verify permission denial. Verify a creator cannot publish their own submission.
-- Approve a test submission as admin. Confirm Pages and a GitHub Release asset are available before the public catalog entry appears.
-- Suspend a published game and verify it disappears from discovery. Restore it and verify it returns.
-- Inspect browser devtools/network and deployed source for secrets; the only public Firebase/App Check values should be web configuration identifiers and the reCAPTCHA site key.
-- Test at mobile and desktop widths and use keyboard controls for navigation, dialogs and player controls.
+The application uses Firebase Authentication only; this repository does not configure Firebase Hosting, Functions, Firestore, or Storage. If an earlier version created those resources, this change does not delete deployed data or cloud resources. Review them in the Firebase console, export any records you need, then disable/delete unused databases, buckets, or functions using the project operator's normal data-retention and deletion process.
 
-## Security and known operational constraints
+The GitHub Pages frontend sets a meta Content Security Policy and referrer policy. GitHub Pages does not let this repository configure response headers such as `X-Frame-Options`; use a hosting service with configurable headers if those additional headers are required.
 
-- Browser configuration and App Check site keys are public. Firebase Security Rules and authenticated callable functions enforce trust; frontend state is never authorization.
-- The functions use per-user Firestore rate limits, App Check, server-side input checks, private staging storage, and server-assigned admin claims. Firebase Authentication also applies its own abuse controls.
-- AI requests include game metadata, heuristic findings, and limited text excerpts from submitted source files. Do not include secrets in a game. Provider outages, invalid model names, malformed responses, disagreements, or high-risk findings prevent automatic clearance. A human decision is mandatory regardless.
-- Uploaded code is not executed during review. There is no malware scanner bundled in this project. Configure a separately maintained scanning service before accepting higher-risk or high-volume uploads.
-- The implementation uses the Contents-compatible Git data/blob/tree APIs and limits each published file to 5 MB, avoiding the assumption that the GitHub Contents API supports arbitrary files. Large downloadable builds are GitHub Release assets; repository/Pages growth and GitHub bandwidth/rate limits remain operational costs to monitor.
-- Publication is idempotent at the game/release-tag level and never makes the Firestore record public before asset availability checks. A failed commit or Pages rollout may leave unlisted files in the designated publishing repository; inspect and clean those using the operator's normal retention policy, never by overwriting another game's unique path.
-- GitHub Pages is a static file host, not a backend. Pages may take time to deploy. This implementation waits up to 60 seconds for the game and cover; a timeout leaves the submission unpublished for an administrator retry.
-- The player sandbox does not pass user identity, credentials, or tokens to game frames. There is no game-to-parent `postMessage` bridge.
-- Review Firebase quotas, cost alerts, retention/deletion policy, domain ownership, GitHub release storage, and legal/content moderation requirements before production launch.
+## Terms and privacy
 
-## Troubleshooting
-
-- **Publishing shows setup required:** configure Firebase web values, App Check reCAPTCHA site key, deploy Functions, and ensure the browser's site domain is registered for App Check/Auth.
-- **Callable requests fail with App Check errors:** register the correct production and preview domains, ensure App Check is initialized in the client, and deploy current functions.
-- **Gemini/Groq review fails:** check secret versions, function logs, model names available to the account, quota, and provider status. Failed AI review never implies approval.
-- **GitHub publishing fails:** check secret access, token repository scope, Contents/Releases permissions, repository branch, Pages origin, release limits, rate limits, and Pages deployment status.
-- **Browser game is unavailable:** confirm a root `index.html`, relative paths, supported file types, <=5 MB individual files, Pages build source, correct origin/path configuration, and that the deployment has completed.
-- **Firestore reports a missing index:** deploy the checked-in `firestore.indexes.json` or follow the Firebase error's index link and verify the created index matches this repository's query.
-- **Admin panel is denied:** assign the custom claim with `set-admin`, sign out/in or refresh the ID token, and confirm the correct Firebase project and UID.
-- **Cover rejected:** re-export a valid JPG, PNG or WebP file within 5 MB; the browser MIME label alone is not accepted.
-
-## Support and content policy
-
-Use the official [GitHub profile](https://github.com/ymisk019) to contact the project maintainer. Read [Privacy](docs/PRIVACY.md) and [Terms](docs/TERMS.md) before publishing.
+Read [Privacy](docs/PRIVACY.md) and [Terms](docs/TERMS.md). These project templates must be updated with the operator's legal identity, contact, retention practices, and applicable jurisdiction before public launch.
