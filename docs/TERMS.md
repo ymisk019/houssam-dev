@@ -11,10 +11,10 @@ By using Yazan dev, you agree to use the platform lawfully and respect other peo
 ## Creators
 
 - Submit only content you own or are authorized to distribute. You are responsible for rights to game code, artwork, music, names, trademarks, and third-party assets.
-- Do not submit malware, credential theft, phishing, deceptive redirects, unauthorized tracking, illegal content, or content intended to harm users or systems.
+- Do not submit pornographic or sexually explicit content. AI-assisted review is limited to this content policy, may be incomplete or wrong, and does not replace human review.
 - Describe external services, analytics, ads, network requests, permissions, and downloadable files accurately. Do not package secrets or private information.
-- Submissions remain private while in quarantine and are not published until a human administrator approves them. AI results are advisory and may be incomplete or wrong.
-- An administrator may reject, request changes, suspend, restore, or remove content. Publication to GitHub Pages or GitHub Releases makes game files publicly accessible.
+- Submissions remain in a private GitHub repository and are not published until a human administrator approves them. AI results are advisory and may be incomplete or wrong.
+- An administrator may reject, request changes, suspend, restore, or remove content. Approved browser games and downloads are served publicly through the publishing API. Private source storage does not make public browser game content impossible to copy.
 - You grant the platform operator the limited permission needed to store, inspect, moderate, and publish your submitted game as configured. Ownership of your original work does not transfer.
 
 ## Review and reporting
