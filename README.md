@@ -24,6 +24,7 @@ docs/TERMS.md              User and game-submission terms
 
 - Node.js 22, Firebase CLI, a Firebase project with Authentication, Firestore, Storage, App Check, and Cloud Functions enabled. Cloud Functions deployment requires a billing-enabled Firebase plan.
 - Enable Email/Password and Google providers in Firebase Authentication.
+- For Google sign-in, open the deployed HTTPS website rather than `index.html` from a local `file://` path. Add `ymisk019.github.io` under Firebase Authentication → Settings → Authorized domains, and enable the Google provider under Sign-in method. A local file has no authorized web domain, so Firebase blocks its popup sign-in.
 - Register the deployed site with reCAPTCHA v3 in Firebase App Check. Put the web site key in `APP_CHECK_SITE_KEY`; the key is public and is not an API secret.
 - Browser ZIP: 25 MB compressed, 100 MB extracted, 200 files, 5 MB per entry, maximum 12 path levels and 100:1 compression ratio. A root-level `index.html` is required. The per-entry cap matches the 5 MB GitHub Git Data API publishing limit.
 - Cover and screenshots: 5 MB each. Accepted formats are JPG, PNG and WebP; the backend verifies each image signature. Up to 5 optional screenshots are supported per submission.
