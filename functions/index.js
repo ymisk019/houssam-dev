@@ -445,7 +445,7 @@ async function publishFiles(owner, repo, branch, files) {
     tree.push({ path: file.path, mode: "100644", type: "blob", sha: blob.sha });
   }
   const treeResult = await githubRequest(`/repos/${owner}/${repo}/git/trees`, { method: "POST", body: JSON.stringify({ base_tree: baseTree.tree.sha, tree }) });
-  const commit = await githubRequest(`/repos/${owner}/${repo}/git/commits`, { method: "POST", body: JSON.stringify({ message: "Publish approved Houssam dev game assets", tree: treeResult.sha, parents: [parent] }) });
+  const commit = await githubRequest(`/repos/${owner}/${repo}/git/commits`, { method: "POST", body: JSON.stringify({ message: "Publish approved Yazan dev game assets", tree: treeResult.sha, parents: [parent] }) });
   await githubRequest(`/repos/${owner}/${repo}/git/refs/heads/${encodeURIComponent(branch)}`, { method: "PATCH", body: JSON.stringify({ sha: commit.sha, force: false }) });
 }
 

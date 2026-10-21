@@ -1,16 +1,16 @@
 # Privacy
 
-Houssam dev is designed to collect only the information needed to provide accounts, game discovery, publishing, and moderation. The operator must configure Firebase and provider accounts before these services are active.
+Yazan dev is designed to collect only the information needed to provide accounts, game discovery, publishing, and moderation. The operator must configure Firebase and provider accounts before these services are active.
 
 ## Information handled
 
-- Firebase Authentication processes account credentials and Google identity. Houssam dev does not store or receive account passwords.
+- Firebase Authentication processes account credentials and Google identity. Yazan dev does not store or receive account passwords.
 - A user profile may contain the display name and profile image URL supplied by the sign-in provider or account holder.
 - The platform stores game metadata, private submission records, moderation reports, favorites, reports, review history, and publication records in Firestore.
 - Submitted covers, optional screenshots, and game ZIP files are held in Firebase Storage quarantine while awaiting review. Firebase Storage paths are owner-scoped; administrator functions use privileged server credentials.
 - Upload source excerpts and metadata are sent from the backend to the configured Google Gemini and Groq APIs for independent AI-assisted analysis. Do not include passwords, API keys, private personal data, or other secrets in uploaded games.
 - Approved games, covers, and release archives are copied to the configured public GitHub repository and GitHub Pages / Releases destination. Those published files are public and may be copied or downloaded by anyone.
-- Signed-in play events may increment a per-game play counter. Houssam dev does not display fabricated counts.
+- Signed-in play events may increment a per-game play counter. Yazan dev does not display fabricated counts.
 
 ## Service providers and retention
 

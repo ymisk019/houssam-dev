@@ -1,6 +1,6 @@
 # Terms and content policy
 
-By using Houssam dev, you agree to use the platform lawfully and respect other people, creators, and intellectual property.
+By using Yazan dev, you agree to use the platform lawfully and respect other people, creators, and intellectual property.
 
 ## Players
 

@@ -1,4 +1,4 @@
-# Houssam dev
+# Yazan dev
 
 An English-only indie-game discovery and publishing site. The repository contains a single-file vanilla-JavaScript frontend, Firebase Authentication/Firestore/Storage integration, Firebase Functions v2 backend, locked-down Firestore and Storage rules, and server-side Gemini, Groq, and GitHub integrations. The public catalog starts empty: no demo titles or pretend downloads are included.
 
