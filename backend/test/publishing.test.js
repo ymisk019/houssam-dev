@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { apiOrigin, proxyPath, publicGame, validateMetadata } = require("../index");
+const { apiOrigin, errorPayload, githubFailure, proxyPath, publicGame, validateMetadata } = require("../index");
 
 test("Render service URL is used unless a custom public API origin is set", () => {
   const previousPublicOrigin = process.env.PUBLIC_API_ORIGIN;
@@ -51,4 +51,38 @@ test("game metadata permits supported genres and types only", () => {
   assert.throws(() => validateMetadata({
     title: "Game", shortDescription: "Short", description: "Description", genre: "Other", type: "invalid"
   }), { status: 400 });
+});
+
+test("GitHub failures map to sanitized actionable categories", () => {
+  assert.deepEqual(
+    [401, 403, 404, 503].map(status => {
+      const error = githubFailure(status);
+      return { status: error.status, code: error.code, message: error.message };
+    }),
+    [
+      { status: 502, code: "github_authentication_failed", message: "Publishing storage authentication failed. Please contact the site administrator." },
+      { status: 502, code: "github_permission_denied", message: "Publishing storage denied access. Please contact the site administrator." },
+      { status: 502, code: "github_repository_not_found", message: "The publishing repository or branch could not be found. Please contact the site administrator." },
+      { status: 503, code: "github_unavailable", message: "Publishing storage is temporarily unavailable. Please try again later." }
+    ]
+  );
+  assert.equal(githubFailure(403, true).code, "github_rate_limited");
+  assert.equal(githubFailure(429).code, "github_rate_limited");
+});
+
+test("error responses include a correlation ID and never expose uncategorized details", () => {
+  const result = errorPayload(new Error("private token or upstream response"), "request-123");
+  assert.deepEqual(result, {
+    status: 500,
+    payload: { error: "The request could not be completed.", code: "internal_error", requestId: "request-123" }
+  });
+
+  const invalidUpload = Object.assign(new Error("The uploaded file exceeds the allowed size."), {
+    status: 413,
+    code: "upload_too_large"
+  });
+  assert.deepEqual(errorPayload(invalidUpload, "request-456"), {
+    status: 413,
+    payload: { error: "The uploaded file exceeds the allowed size.", code: "upload_too_large", requestId: "request-456" }
+  });
 });

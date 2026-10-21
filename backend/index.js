@@ -24,6 +24,36 @@ function response(res, status, payload, headers = {}) {
   res.end(JSON.stringify(payload));
 }
 
+function requestError(status, code, message) {
+  return Object.assign(new Error(message), { status, code });
+}
+
+function githubFailure(status, rateLimited = false) {
+  if (rateLimited || status === 429) {
+    return requestError(503, "github_rate_limited", "Publishing storage is temporarily rate limited. Please try again later.");
+  }
+  if (status === 401) {
+    return requestError(502, "github_authentication_failed", "Publishing storage authentication failed. Please contact the site administrator.");
+  }
+  if (status === 403) {
+    return requestError(502, "github_permission_denied", "Publishing storage denied access. Please contact the site administrator.");
+  }
+  if (status === 404) {
+    return requestError(502, "github_repository_not_found", "The publishing repository or branch could not be found. Please contact the site administrator.");
+  }
+  if (status >= 500) {
+    return requestError(503, "github_unavailable", "Publishing storage is temporarily unavailable. Please try again later.");
+  }
+  return requestError(502, "github_request_failed", "Publishing storage could not complete the request. Please contact the site administrator.");
+}
+
+function errorPayload(error, requestId) {
+  const status = Number.isInteger(error.status) ? error.status : 500;
+  const code = error.code || (status >= 500 ? "internal_error" : "request_failed");
+  const message = status >= 500 && !error.code ? "The request could not be completed." : error.message;
+  return { status, payload: { error: message, code, requestId } };
+}
+
 async function auditAction(actorUid, action, targetId, outcome) {
   const id = crypto.randomUUID();
   await putFile(`audit/${id}.json`, JSON.stringify({ id, actorUid, action, targetId, outcome, createdAt: new Date().toISOString() }, null, 2), `Audit ${action} action for ${targetId}`);
@@ -37,7 +67,7 @@ function readBody(req, limit) {
     req.on("data", chunk => {
       size += chunk.length;
       if (size > limit) {
-        if (!oversized) reject(Object.assign(new Error("Request body exceeds the allowed size."), { status: 413 }));
+        if (!oversized) reject(requestError(413, "upload_too_large", "The uploaded file exceeds the allowed size."));
         oversized = true;
         return;
       }
@@ -96,7 +126,9 @@ function validateMetadata(body) {
 
 function githubConfig() {
   const { GITHUB_OWNER: owner, GITHUB_REPO: repo, GITHUB_BRANCH: branch = "main", GITHUB_TOKEN: token } = process.env;
-  if (!owner || !repo || !branch || !token) throw new Error("Private GitHub repository configuration is incomplete.");
+  if (!owner || !repo || !branch || !token) {
+    throw requestError(503, "github_not_configured", "Publishing storage is not configured. Please contact the site administrator.");
+  }
   return { owner, repo, branch, token };
 }
 
@@ -116,9 +148,18 @@ async function githubRequest(apiPath, options = {}) {
       ...(options.headers || {})
     },
     signal: AbortSignal.timeout(60000)
+  }).catch(() => {
+    throw requestError(503, "github_unavailable", "Publishing storage is temporarily unavailable. Please try again later.");
   });
-  if (result.status === 404) return null;
-  if (!result.ok) throw new Error(`Private GitHub repository returned HTTP ${result.status}.`);
+  if (result.status === 404) {
+    if (options.method && options.method !== "GET") throw githubFailure(404);
+    if (apiPath.startsWith("/git/ref/heads/")) throw githubFailure(404);
+    return null;
+  }
+  if (!result.ok) {
+    const rateLimited = result.headers.get("x-ratelimit-remaining") === "0" || result.headers.has("retry-after");
+    throw githubFailure(result.status, rateLimited);
+  }
   return result.status === 204 ? null : result.json();
 }
 
@@ -127,9 +168,14 @@ async function getFile(filePath) {
   const result = await fetch(`https://api.github.com/repos/${config.owner}/${config.repo}/contents/${repoPath(filePath)}?ref=${encodeURIComponent(config.branch)}`, {
     headers: { accept: "application/vnd.github.raw+json", authorization: `Bearer ${config.token}`, "x-github-api-version": "2022-11-28" },
     signal: AbortSignal.timeout(60000)
+  }).catch(() => {
+    throw requestError(503, "github_unavailable", "Publishing storage is temporarily unavailable. Please try again later.");
   });
   if (result.status === 404) return null;
-  if (!result.ok) throw new Error(`Unable to read private repository file (HTTP ${result.status}).`);
+  if (!result.ok) {
+    const rateLimited = result.headers.get("x-ratelimit-remaining") === "0" || result.headers.has("retry-after");
+    throw githubFailure(result.status, rateLimited);
+  }
   return Buffer.from(await result.arrayBuffer());
 }
 
@@ -193,9 +239,9 @@ async function getPublishedGame(id) {
 async function requireUser(req) {
   const authorization = req.headers.authorization || "";
   const match = /^Bearer ([\w.-]+)$/.exec(authorization);
-  if (!match) throw Object.assign(new Error("Sign in is required."), { status: 401 });
+  if (!match) throw requestError(401, "authentication_required", "Sign in is required.");
   try { return await getAuth().verifyIdToken(match[1]); }
-  catch { throw Object.assign(new Error("Your sign-in session is invalid. Sign in again."), { status: 401 }); }
+  catch { throw requestError(401, "firebase_authentication_failed", "Your sign-in session is invalid. Sign in again."); }
 }
 
 async function requireAdmin(req) {
@@ -229,7 +275,15 @@ function imageExtension(buffer) {
   if (buffer.length > 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return "jpg";
   if (buffer.length > 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "png";
   if (buffer.length > 12 && buffer.toString("ascii", 0, 4) === "RIFF" && buffer.toString("ascii", 8, 12) === "WEBP") return "webp";
-  throw Object.assign(new Error("Image must be a valid JPG, PNG, or WebP file."), { status: 400 });
+  throw requestError(400, "invalid_file", "Image must be a valid JPG, PNG, or WebP file.");
+}
+
+async function inspectSubmittedArchive(buffer, browserBuild) {
+  try {
+    return await inspectArchive(buffer, browserBuild);
+  } catch {
+    throw requestError(400, "invalid_file", "The uploaded ZIP is invalid or contains unsupported files.");
+  }
 }
 
 async function readUpload(submissionId, name) {
@@ -299,7 +353,7 @@ async function publishSubmission(submission) {
   if (!zip) throw new Error("The game ZIP is missing.");
   const browserFiles = [];
   if (submission.type !== "download") {
-    const inspection = await inspectArchive(zip, true);
+    const inspection = await inspectSubmittedArchive(zip, true);
     browserFiles.push(...inspection.files.map(file => ({ path: `published/${id}/${file.path}`, content: file.content })));
   }
   const fileName = `${id}-v${submission.version || 1}.zip`;
@@ -377,7 +431,7 @@ async function routeApi(req, res, url) {
     const zip = await readUpload(submission.id, "game.zip");
     const cover = await readUpload(submission.id, "cover");
     if (!zip || !cover) throw Object.assign(new Error("Upload the game ZIP and cover before submitting."), { status: 400 });
-    const inspection = await inspectArchive(zip, submission.type !== "download");
+    const inspection = await inspectSubmittedArchive(zip, submission.type !== "download");
     if (submission.type !== "download" && !inspection.rootHtml) throw Object.assign(new Error("A browser game ZIP must contain a root index.html file."), { status: 400 });
     const moderation = await aiSexualContentReview(submission, inspection).catch(error => ({
       status: "Needs Human Review", policy: "Pornographic or sexually explicit content only", reports: [],
@@ -488,7 +542,7 @@ async function routeApi(req, res, url) {
     }
     if (submission.type !== "download") {
       const zip = await readUpload(id, "game.zip");
-      const inspection = await inspectArchive(zip, true);
+      const inspection = await inspectSubmittedArchive(zip, true);
       if (!inspection.rootHtml) throw Object.assign(new Error("The browser archive has no root index.html."), { status: 400 });
     }
     const game = await publishSubmission(submission);
@@ -609,6 +663,8 @@ async function servePublishedFile(req, res, url) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const requestId = crypto.randomUUID();
+  res.setHeader("x-request-id", requestId);
   const frontendOrigin = process.env.FRONTEND_ORIGIN;
   const origin = req.headers.origin;
   if (req.url.startsWith("/api/") && frontendOrigin && origin === frontendOrigin) {
@@ -616,6 +672,7 @@ const server = http.createServer(async (req, res) => {
     res.setHeader("vary", "Origin");
     res.setHeader("access-control-allow-headers", "authorization, content-type");
     res.setHeader("access-control-allow-methods", "GET, POST, HEAD, OPTIONS");
+    res.setHeader("access-control-expose-headers", "x-request-id");
   } else if (!req.url.startsWith("/api/")) {
     res.setHeader("access-control-allow-origin", "*");
   }
@@ -626,8 +683,10 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/healthz") return response(res, 200, { status: "ok" });
     return await servePublishedFile(req, res, url);
   } catch (error) {
-    console.error("Publishing API request failed:", error.message);
-    if (!res.headersSent) return response(res, error.status || 500, { error: error.status ? error.message : "The request could not be completed." });
+    const { status, payload } = errorPayload(error, requestId);
+    const route = new URL(req.url, "http://localhost").pathname;
+    console.error("Publishing API request failed:", JSON.stringify({ requestId, code: payload.code, status, method: req.method, route }));
+    if (!res.headersSent) return response(res, status, payload);
     res.destroy();
   }
 });
@@ -645,4 +704,4 @@ if (require.main === module) {
   server.listen(PORT, "0.0.0.0", () => console.log(`Publishing API listening on ${PORT}`));
 }
 
-module.exports = { apiOrigin, proxyPath, publicGame, validateMetadata };
+module.exports = { apiOrigin, errorPayload, githubFailure, proxyPath, publicGame, validateMetadata };

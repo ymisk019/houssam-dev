@@ -42,6 +42,10 @@ The repository includes a `render.yaml` Blueprint for the Node.js 22 API. It set
 
 The Blueprint uses Render's free web-service plan. Free services can spin down when idle; choose an appropriate always-on plan in Render if the API needs to remain warm. After changing environment variables or secret files, trigger a new deployment/restart in Render. Later pushes to the configured branch will also redeploy the API when auto-deploy is enabled.
 
+### Troubleshoot failed submissions
+
+The publishing form shows a safe error category and a **Reference** ID when the API rejects a request. Search Render service logs for that exact ID to correlate the failure; logs include the category, HTTP status, method, and route, but not GitHub response bodies or credentials. For `github_permission_denied` or `github_authentication_failed`, check that Render's `GITHUB_TOKEN` is current, restricted to the intended private repository, and has **Contents: read and write** permission, then redeploy. `github_repository_not_found` points to the configured repository or branch; `github_rate_limited` and `github_unavailable` are temporary GitHub API failures. `upload_too_large` and `invalid_file` identify an upload that exceeds limits or is not a supported file. Never send the token or raw request headers when reporting an error.
+
 The backend stores staging data under `submissions/<id>/` and approved game assets under `published/<id>/`, with public catalog metadata under `catalog/`. These paths are all in the private repository. It writes the public catalog record only after the approved assets have been committed. The public API serves files only when the corresponding catalog record is `Published`; suspension immediately blocks playback and downloads. Approved browser game URLs and ZIP download URLs use the API proxy, not GitHub Pages or a public GitHub repository.
 
 ## Create the first administrator

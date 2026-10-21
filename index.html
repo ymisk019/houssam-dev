@@ -71,7 +71,14 @@
         body: options.body !== undefined ? options.body : data === undefined ? undefined : JSON.stringify(data)
       });
       const result = response.status === 204 ? {} : await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || `Request failed (HTTP ${response.status}).`);
+      if (!response.ok) {
+        const category = result.code ? ` [${result.code}]` : "";
+        const reference = result.requestId ? ` (Reference: ${result.requestId})` : "";
+        throw Object.assign(new Error(`${result.error || `Request failed (HTTP ${response.status}).`}${category}${reference}`), {
+          code: result.code,
+          requestId: result.requestId
+        });
+      }
       return result;
     }
     async function getPrivateSubmissionFile(submissionId,name) {
